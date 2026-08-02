@@ -1,0 +1,141 @@
+name: Daily Streak Commit
+
+on:
+  schedule:
+    # Runs at 09:17 UTC daily — pick a non-round minute to look organic.
+    # GitHub Actions cron has ~5-20 min jitter anyway, so effective window ≈ 09:17–09:37 UTC.
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run without pushing (for testing)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+# ── Least-privilege permissions ──────────────────────────────────────────────
+permissions:
+  contents: write   # push commits
+  issues: write     # create failure-notification issues
+
+# ── Prevent overlapping runs ─────────────────────────────────────────────────
+concurrency:
+  group: daily-streak
+  cancel-in-progress: false
+
+env:
+  BOT_NAME: "streak-bot"
+  BOT_EMAIL: "streak-bot@users.noreply.github.com"
+  TARGET_BRANCH: "main"                # change to a dedicated branch if preferred
+  STATUS_FILE: "log/status.json"       # audit log of every run
+
+jobs:
+  streak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0               # full history for day-count calculation
+
+      # ── 2. Set up Python ───────────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── 3. Generate today's content ────────────────────────────────────────
+      - name: Generate daily content
+        id: generate
+        run: |
+          python scripts/generate_content.py
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      # ── 4. Commit & push ──────────────────────────────────────────────────
+      - name: Commit and push
+        id: commit
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          git config user.name  "$BOT_NAME"
+          git config user.email "$BOT_EMAIL"
+
+          # Stage all generated / modified files
+          git add -A
+
+          # Check if there are actual changes to commit
+          if git diff --cached --quiet; then
+            echo "status=skipped" >> "$GITHUB_OUTPUT"
+            echo "ℹ️  No changes detected — skipping commit."
+            exit 0
+          fi
+
+          DATE=$(date -u +%Y-%m-%d)
+          git commit -m "📅 daily log: ${DATE} — auto-generated streak entry"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "status=dry-run" >> "$GITHUB_OUTPUT"
+            echo "🧪 Dry-run mode — commit created but not pushed."
+          else
+            git push origin "$TARGET_BRANCH"
+            echo "status=pushed" >> "$GITHUB_OUTPUT"
+            echo "✅ Commit pushed to ${TARGET_BRANCH}."
+          fi
+
+      # ── 5. Update audit status log ────────────────────────────────────────
+      - name: Log run status
+        if: always()
+        run: |
+          mkdir -p "$(dirname "$STATUS_FILE")"
+
+          STATUS="${{ steps.commit.outputs.status || 'error' }}"
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Append a JSON line (JSONL format) for easy parsing
+          echo "{\"timestamp\":\"${TIMESTAMP}\",\"status\":\"${STATUS}\",\"run_url\":\"${RUN_URL}\",\"trigger\":\"${{ github.event_name }}\"}" \
+            >> "$STATUS_FILE"
+
+          # Re-stage and amend (or create a new commit) so the status file is included
+          git add "$STATUS_FILE"
+          if ! git diff --cached --quiet; then
+            git config user.name  "$BOT_NAME"
+            git config user.email "$BOT_EMAIL"
+            git commit -m "📊 update run status log [skip ci]"
+            if [ "${{ github.event.inputs.dry_run || 'false' }}" != "true" ]; then
+              git push origin "$TARGET_BRANCH"
+            fi
+          fi
+
+      # ── 6. Failure notification — auto-create a GitHub Issue ───────────────
+      - name: Create failure issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Daily streak workflow failed — ${new Date().toISOString().slice(0, 10)}`,
+              body: [
+                `The **Daily Streak Commit** workflow failed.`,
+                ``,
+                `| Detail | Value |`,
+                `|--------|-------|`,
+                `| **Run** | [View logs](${runUrl}) |`,
+                `| **Trigger** | \`${context.eventName}\` |`,
+                `| **Branch** | \`${process.env.TARGET_BRANCH}\` |`,
+                `| **Time (UTC)** | ${new Date().toISOString()} |`,
+                ``,
+                `Please investigate and re-run manually if the streak is at risk.`,
+              ].join('\n'),
+              labels: ['streak-bot', 'bug'],
+            });
