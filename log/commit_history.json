@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "date": "2026-08-02",
+    "timestamp_utc": "2026-08-02T10:50:35Z",
+    "weekday": "Sunday",
+    "day_number": 1,
+    "streak": 1,
+    "quote": "Programs must be written for people to read.",
+    "quote_author": "Harold Abelson",
+    "trigger": "schedule",
+    "run_id": "30744534745"
+  }
+]
