@@ -3,8 +3,9 @@
 generate_content.py — Daily content generator for the GitHub streak bot.
 
 Creates / appends to:
-  1. log/YYYY-MM-DD.md   — a daily journal entry with a random dev quote
-  2. README.md           — updates the "Streak Stats" block with today's count
+  1. log/YYYY-MM-DD.md          — a daily journal entry with a random dev quote
+  2. README.md                  — updates the "Streak Stats" block with today's count
+  3. log/commit_history.json    — accumulates a JSON record of every commit
 
 Uses only the Python standard library (no pip install needed on Actions).
 """
@@ -25,6 +26,7 @@ from pathlib import Path
 REPO_ROOT = Path(os.environ.get("GITHUB_WORKSPACE", Path(__file__).resolve().parent.parent))
 LOG_DIR = REPO_ROOT / "log"
 README = REPO_ROOT / "README.md"
+COMMIT_HISTORY = LOG_DIR / "commit_history.json"
 
 # ─── Curated quotes (expand freely) ─────────────────────────────────────────
 
@@ -82,13 +84,14 @@ def _streak_length() -> int:
     return streak
 
 
-def _generate_daily_log(now: datetime) -> Path:
+def _generate_daily_log(now: datetime, quote: dict[str, str] | None = None) -> Path:
     """Create log/YYYY-MM-DD.md with a timestamped entry."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     date_str = now.strftime("%Y-%m-%d")
     log_file = LOG_DIR / f"{date_str}.md"
 
-    quote = random.choice(QUOTES)
+    if quote is None:
+        quote = random.choice(QUOTES)
     day_number = _day_count() + 1
 
     entry = textwrap.dedent(f"""\
@@ -161,15 +164,56 @@ def _update_readme_stats(now: datetime, day_number: int) -> None:
     print(f"✅ Updated README stats block")
 
 
+def _update_commit_history(now: datetime, day_number: int, quote: dict[str, str]) -> None:
+    """
+    Append today's commit record to log/commit_history.json.
+    The file stores a JSON array so it's easy to parse and query.
+    """
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Load existing history or start fresh
+    if COMMIT_HISTORY.exists():
+        try:
+            history = json.loads(COMMIT_HISTORY.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, ValueError):
+            history = []
+    else:
+        history = []
+
+    record = {
+        "id": len(history) + 1,
+        "date": now.strftime("%Y-%m-%d"),
+        "timestamp_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "weekday": now.strftime("%A"),
+        "day_number": day_number,
+        "streak": _streak_length(),
+        "quote": quote["text"],
+        "quote_author": quote["author"],
+        "trigger": os.environ.get("GITHUB_EVENT_NAME", "local"),
+        "run_id": os.environ.get("GITHUB_RUN_ID", None),
+    }
+
+    history.append(record)
+    COMMIT_HISTORY.write_text(
+        json.dumps(history, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    print(f"✅ Updated commit history → {len(history)} total entries")
+
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     now = datetime.now(timezone.utc)
     print(f"🕐 Current UTC time: {now.isoformat()}")
 
-    _generate_daily_log(now)
+    # Pick today's quote once so the log and history record stay in sync
+    quote = random.choice(QUOTES)
+
+    _generate_daily_log(now, quote)
     day_number = _day_count()
     _update_readme_stats(now, day_number)
+    _update_commit_history(now, day_number, quote)
 
     print(f"🎯 Day #{day_number} content generated successfully.")
 
