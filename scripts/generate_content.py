@@ -213,7 +213,24 @@ def _update_commit_history(now: datetime, day_number: int, quote: dict[str, str]
 
 def main() -> None:
     now = datetime.now(timezone.utc)
+    date_str = now.strftime("%Y-%m-%d")
+    log_file = LOG_DIR / f"{date_str}.md"
+    force = os.environ.get("FORCE_COMMIT", "false").lower() in ("true", "1", "yes")
+
     print(f"🕐 Current UTC time: {now.isoformat()}")
+
+    # If today already has a daily entry and force is not requested, skip cleanly
+    if log_file.exists() and not force:
+        print(f"ℹ️ Today ({date_str}) already has a commit entry. Streak is safe — skipping fallback.")
+        github_output = os.environ.get("GITHUB_OUTPUT")
+        if github_output:
+            try:
+                with open(github_output, "a", encoding="utf-8") as f:
+                    f.write("already_committed=true\n")
+                    f.write(f"date={date_str}\n")
+            except Exception:
+                pass
+        return
 
     # Pick today's quote once so the log and history record stay in sync
     quote = random.choice(QUOTES)
@@ -221,6 +238,15 @@ def main() -> None:
     _, day_number = _generate_daily_log(now, quote)
     _update_readme_stats(now, day_number)
     _update_commit_history(now, day_number, quote)
+
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if github_output:
+        try:
+            with open(github_output, "a", encoding="utf-8") as f:
+                f.write("already_committed=false\n")
+                f.write(f"date={date_str}\n")
+        except Exception:
+            pass
 
     print(f"🎯 Day #{day_number} content generated successfully.")
 

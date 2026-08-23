@@ -2,11 +2,25 @@ name: Daily Streak Commit
 
 on:
   schedule:
-    # Runs at 09:17 UTC daily — pick a non-round minute to look organic.
-    # GitHub Actions cron has ~5-20 min jitter anyway, so effective window ≈ 09:17–09:37 UTC.
-    - cron: "17 9 * * *"
+    # ── Primary Run: 10:00 PM IST (16:30 UTC) ──────────────────────────────────
+    - cron: "30 16 * * *"
+    # ── Fallback 1: 11:00 PM IST (17:30 UTC) — 1 hour after primary ───────────
+    - cron: "30 17 * * *"
+    # ── Fallback 2: 11:55 PM IST (18:25 UTC) — end-of-day safety backup ────────
+    - cron: "25 18 * * *"
+    # ── Morning Backup: 10:00 AM IST (04:30 UTC) ──────────────────────────────
+    - cron: "30 4 * * *"
+
   workflow_dispatch:
     inputs:
+      force:
+        description: "Force commit even if already committed today"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       dry_run:
         description: "Run without pushing (for testing)"
         required: false
@@ -54,12 +68,14 @@ jobs:
       # ── 3. Generate today's content ────────────────────────────────────────
       - name: Generate daily content
         id: generate
+        env:
+          FORCE_COMMIT: ${{ github.event.inputs.force || 'false' }}
         run: |
           python scripts/generate_content.py
-          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
       # ── 4. Append audit status log ────────────────────────────────────────
       - name: Update audit log
+        if: steps.generate.outputs.already_committed != 'true'
         run: |
           mkdir -p "$(dirname "$STATUS_FILE")"
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -70,6 +86,7 @@ jobs:
       # ── 5. Commit & push ──────────────────────────────────────────────────
       - name: Commit and push
         id: commit
+        if: steps.generate.outputs.already_committed != 'true'
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |

@@ -274,5 +274,17 @@
     "quote_author": "Bill Gates",
     "trigger": "local",
     "run_id": null
+  },
+  {
+    "id": 24,
+    "date": "2026-08-23",
+    "timestamp_utc": "2026-08-23T09:26:31Z",
+    "weekday": "Sunday",
+    "day_number": 22,
+    "streak": 22,
+    "quote": "It's not a bug — it's an undocumented feature.",
+    "quote_author": "Anonymous",
+    "trigger": "local",
+    "run_id": null
   }
 ]
