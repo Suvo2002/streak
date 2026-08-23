@@ -99,7 +99,16 @@ jobs:
             echo "✅ Commit pushed to ${TARGET_BRANCH}."
           fi
 
-      # ── 6. Failure notification — auto-create a GitHub Issue ───────────────
+      # ── 6. Send Telegram notification ──────────────────────────────────────
+      - name: Send Telegram notification
+        if: steps.commit.outputs.status == 'pushed'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python scripts/notify_telegram.py
+
+      # ── 7. Failure notification — auto-create a GitHub Issue ───────────────
       - name: Create failure issue
         if: failure()
         continue-on-error: true
