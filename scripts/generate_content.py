@@ -17,9 +17,17 @@ import os
 import random
 import re
 import subprocess
+import sys
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Ensure UTF-8 output on all environments
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -57,42 +65,42 @@ QUOTES: list[dict[str, str]] = [
 
 
 def _day_count() -> int:
-    """Count the total number of daily-log files already in log/."""
+    """Count the total number of daily-log files (YYYY-MM-DD.md) in log/."""
     if not LOG_DIR.exists():
         return 0
-    return sum(1 for f in LOG_DIR.glob("*.md") if f.name != "status.json")
+    return sum(1 for f in LOG_DIR.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md"))
 
 
-def _streak_length() -> int:
+def _streak_length(ref_date: datetime | None = None) -> int:
     """
-    Walk backwards from today counting consecutive days that have a log file.
+    Walk backwards from the given date counting consecutive days that have a log file.
     """
     from datetime import timedelta
 
-    today = datetime.now(timezone.utc).date()
+    current_date = (ref_date or datetime.now(timezone.utc)).date()
     streak = 0
-    day = today
+    day = current_date
     while True:
         if (LOG_DIR / f"{day.isoformat()}.md").exists():
             streak += 1
             day -= timedelta(days=1)
         else:
             break
-    # Include today's upcoming entry
-    if streak == 0:
-        streak = 1
-    return streak
+    return max(streak, 1)
 
 
-def _generate_daily_log(now: datetime, quote: dict[str, str] | None = None) -> Path:
-    """Create log/YYYY-MM-DD.md with a timestamped entry."""
+def _generate_daily_log(now: datetime, quote: dict[str, str] | None = None) -> tuple[Path, int]:
+    """Create log/YYYY-MM-DD.md with a timestamped entry and return (path, day_number)."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     date_str = now.strftime("%Y-%m-%d")
     log_file = LOG_DIR / f"{date_str}.md"
+    file_existed = log_file.exists()
 
     if quote is None:
         quote = random.choice(QUOTES)
-    day_number = _day_count() + 1
+
+    current_count = _day_count()
+    day_number = current_count if file_existed else current_count + 1
 
     entry = textwrap.dedent(f"""\
         # 📅 Daily Log — {date_str}
@@ -118,13 +126,13 @@ def _generate_daily_log(now: datetime, quote: dict[str, str] | None = None) -> P
     """)
 
     # Append if file already exists (e.g., manual re-run on the same day)
-    mode = "a" if log_file.exists() else "w"
+    mode = "a" if file_existed else "w"
     if mode == "a":
         entry = "\n\n---\n\n" + f"## 🔄 Re-run at {now.strftime('%H:%M:%S')} UTC\n\n" + entry
 
-    log_file.write_text(entry if mode == "w" else log_file.read_text() + entry, encoding="utf-8")
+    log_file.write_text(entry if mode == "w" else log_file.read_text(encoding="utf-8") + entry, encoding="utf-8")
     print(f"✅ Wrote daily log → {log_file.relative_to(REPO_ROOT)}")
-    return log_file
+    return log_file, day_number
 
 
 def _update_readme_stats(now: datetime, day_number: int) -> None:
@@ -132,7 +140,7 @@ def _update_readme_stats(now: datetime, day_number: int) -> None:
     Insert or update a <!-- STREAK-STATS --> block in README.md.
     If no README exists, create a minimal one.
     """
-    streak = _streak_length()
+    streak = _streak_length(now)
     stats_block = textwrap.dedent(f"""\
         <!-- STREAK-STATS:START -->
         ## 📊 Streak Stats
@@ -186,7 +194,7 @@ def _update_commit_history(now: datetime, day_number: int, quote: dict[str, str]
         "timestamp_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "weekday": now.strftime("%A"),
         "day_number": day_number,
-        "streak": _streak_length(),
+        "streak": _streak_length(now),
         "quote": quote["text"],
         "quote_author": quote["author"],
         "trigger": os.environ.get("GITHUB_EVENT_NAME", "local"),
@@ -210,8 +218,7 @@ def main() -> None:
     # Pick today's quote once so the log and history record stay in sync
     quote = random.choice(QUOTES)
 
-    _generate_daily_log(now, quote)
-    day_number = _day_count()
+    _, day_number = _generate_daily_log(now, quote)
     _update_readme_stats(now, day_number)
     _update_commit_history(now, day_number, quote)
 

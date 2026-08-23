@@ -27,8 +27,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BOT_NAME: "streak-bot"
-  BOT_EMAIL: "streak-bot@users.noreply.github.com"
+  BOT_NAME: "Suvo2002"
+  BOT_EMAIL: "mail2suvodas@gmail.com"
   TARGET_BRANCH: "main"                # change to a dedicated branch if preferred
   STATUS_FILE: "log/status.json"       # audit log of every run
 
@@ -58,7 +58,16 @@ jobs:
           python scripts/generate_content.py
           echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
-      # ── 4. Commit & push ──────────────────────────────────────────────────
+      # ── 4. Append audit status log ────────────────────────────────────────
+      - name: Update audit log
+        run: |
+          mkdir -p "$(dirname "$STATUS_FILE")"
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "{\"timestamp\":\"${TIMESTAMP}\",\"status\":\"pushed\",\"run_url\":\"${RUN_URL}\",\"trigger\":\"${{ github.event_name }}\"}" \
+            >> "$STATUS_FILE"
+
+      # ── 5. Commit & push ──────────────────────────────────────────────────
       - name: Commit and push
         id: commit
         env:
@@ -84,39 +93,16 @@ jobs:
             echo "status=dry-run" >> "$GITHUB_OUTPUT"
             echo "🧪 Dry-run mode — commit created but not pushed."
           else
+            git pull --rebase origin "$TARGET_BRANCH"
             git push origin "$TARGET_BRANCH"
             echo "status=pushed" >> "$GITHUB_OUTPUT"
             echo "✅ Commit pushed to ${TARGET_BRANCH}."
           fi
 
-      # ── 5. Update audit status log ────────────────────────────────────────
-      - name: Log run status
-        if: always()
-        run: |
-          mkdir -p "$(dirname "$STATUS_FILE")"
-
-          STATUS="${{ steps.commit.outputs.status || 'error' }}"
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-          # Append a JSON line (JSONL format) for easy parsing
-          echo "{\"timestamp\":\"${TIMESTAMP}\",\"status\":\"${STATUS}\",\"run_url\":\"${RUN_URL}\",\"trigger\":\"${{ github.event_name }}\"}" \
-            >> "$STATUS_FILE"
-
-          # Re-stage and amend (or create a new commit) so the status file is included
-          git add "$STATUS_FILE"
-          if ! git diff --cached --quiet; then
-            git config user.name  "$BOT_NAME"
-            git config user.email "$BOT_EMAIL"
-            git commit -m "📊 update run status log [skip ci]"
-            if [ "${{ github.event.inputs.dry_run || 'false' }}" != "true" ]; then
-              git push origin "$TARGET_BRANCH"
-            fi
-          fi
-
       # ── 6. Failure notification — auto-create a GitHub Issue ───────────────
       - name: Create failure issue
         if: failure()
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
