@@ -262,5 +262,17 @@
     "quote_author": "Robert C. Martin",
     "trigger": "local",
     "run_id": null
+  },
+  {
+    "id": 23,
+    "date": "2026-08-23",
+    "timestamp_utc": "2026-08-23T09:22:33Z",
+    "weekday": "Sunday",
+    "day_number": 22,
+    "streak": 22,
+    "quote": "Measuring programming progress by lines of code is like measuring aircraft building progress by weight.",
+    "quote_author": "Bill Gates",
+    "trigger": "local",
+    "run_id": null
   }
 ]
