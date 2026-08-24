@@ -10,5 +10,17 @@
     "quote_author": "Grady Booch",
     "trigger": "local",
     "run_id": null
+  },
+  {
+    "id": 2,
+    "date": "2026-08-24",
+    "timestamp_utc": "2026-08-24T05:10:14Z",
+    "weekday": "Monday",
+    "day_number": 2,
+    "streak": 2,
+    "quote": "Before software can be reusable it first has to be usable.",
+    "quote_author": "Ralph Johnson",
+    "trigger": "schedule",
+    "run_id": "32692556062"
   }
 ]
